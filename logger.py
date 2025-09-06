@@ -67,23 +67,23 @@ sqlite3.register_converter("timestamp", convert_timestamp)
     # "CREATE TABLE IF NOT EXISTS atmospheretype_tbl(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)",
     # "CREATE TABLE IF NOT EXISTS ringclass_tbl(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)",
 QUERY_CREATE_TABLE = [
-    "CREATE TABLE IF NOT EXISTS system_tbl(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, posx REAL, posy REAL, posz REAL, startype TEXT, systemfaction_id INTEGER, allegiance TEXT, economy TEXT, economysecond TEXT, government TEXT, security TEXT, population INTEGER, detail BLOB NOT NULL DEFAULT (jsonb('{}')), lastarrived_at INTEGER) WITHOUT ROWID",
+    "CREATE TABLE IF NOT EXISTS system_tbl(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, posx REAL, posy REAL, posz REAL, startype TEXT, systemfaction_id INTEGER, allegiance TEXT, economy TEXT, economysecond TEXT, government TEXT, security TEXT, population INTEGER, detail BLOB NOT NULL DEFAULT (jsonb('{}')), lastarrived_at INTEGER, updated_at INTEGER) WITHOUT ROWID",
 
-    "CREATE TABLE IF NOT EXISTS body_tbl(system_id INTEGER, body_id INTEGER, name TEXT NOT NULL, type TEXT, wasdiscovered BOOLEAN, wasmapped BOOLEAN, detail BLOB NOT NULL DEFAULT (jsonb('{}')), lastupdate INTEGER, PRIMARY KEY(system_id, body_id)) WITHOUT ROWID",
+    "CREATE TABLE IF NOT EXISTS body_tbl(system_id INTEGER, body_id INTEGER, name TEXT NOT NULL, type TEXT, wasdiscovered BOOLEAN, wasmapped BOOLEAN, detail BLOB NOT NULL DEFAULT (jsonb('{}')), updated_at INTEGER, PRIMARY KEY(system_id, body_id)) WITHOUT ROWID",
 
-    "CREATE TABLE IF NOT EXISTS market_tbl(id INTEGER PRIMARY KEY, name TEXT NOT NULL, system_id INTEGER, body_id INTEGER, type TEXT, goverment TEXT, economy TEXT, distfromstarls REAL, pads INTEGER, padm INTEGER, padl INTEGER, faction BLOB, detail BLOB NOT NULL DEFAULT (jsonb('{}')), lastupdate INTEGER)",
+    "CREATE TABLE IF NOT EXISTS market_tbl(id INTEGER PRIMARY KEY, name TEXT NOT NULL, system_id INTEGER, body_id INTEGER, type TEXT, goverment TEXT, economy TEXT, distfromstarls REAL, pads INTEGER, padm INTEGER, padl INTEGER, faction BLOB, detail BLOB NOT NULL DEFAULT (jsonb('{}')), updated_at INTEGER)",
 
-    "CREATE TABLE IF NOT EXISTS market_price_tbl(market_id INTEGER, commodity_id INTEGER, buyprice INTEGER, sellprice INTEGER, stockbracket INTEGER, demandbracket INTEGER, stock INTEGER, demand INTEGER, PRIMARY KEY(market_id, commodity_id)) WITHOUT ROWID",
+    "CREATE TABLE IF NOT EXISTS market_price_tbl(market_id INTEGER, commodity_id INTEGER, buyprice INTEGER, sellprice INTEGER, stockbracket INTEGER, demandbracket INTEGER, stock INTEGER, demand INTEGER, updated_at INTEGER, PRIMARY KEY(market_id, commodity_id)) WITHOUT ROWID",
 
-    "CREATE TABLE IF NOT EXISTS faction_tbl(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, allegiance TEXT, government TEXT, myreputation REAL)",
+    "CREATE TABLE IF NOT EXISTS faction_tbl(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, allegiance TEXT, government TEXT, myreputation REAL, updated_at INTEGER)",
 
     "CREATE INDEX IF NOT EXISTS faction_tbl_name_idx ON faction_tbl(name)",
 
-    "CREATE TABLE IF NOT EXISTS system_faction_tbl(faction_id INTEGER, system_id INTEGER, state BLOB NOT NULL DEFAULT (jsonb('{}')), influence REAL, happiness TEXT, PRIMARY KEY(faction_id, system_id)) WITHOUT ROWID",
+    "CREATE TABLE IF NOT EXISTS system_faction_tbl(faction_id INTEGER, system_id INTEGER, state BLOB NOT NULL DEFAULT (jsonb('{}')), influence REAL, happiness TEXT, updated_at INTEGER, PRIMARY KEY(faction_id, system_id)) WITHOUT ROWID",
 
     "CREATE TABLE IF NOT EXISTS commodity_tbl(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, category TEXT, israre INTEGER)",
 
-    "CREATE TABLE IF NOT EXISTS statistics_tbl(id INTEGER PRIMARY KEY, lastupdate INTEGER UNIQUE NOT NULL, detail BLOB NOT NULL DEFAULT (jsonb('{}')) )"
+    "CREATE TABLE IF NOT EXISTS statistics_tbl(id INTEGER PRIMARY KEY, updated_at INTEGER UNIQUE NOT NULL, detail BLOB NOT NULL DEFAULT (jsonb('{}')) )"
     ];
 
 def main():
@@ -135,18 +135,15 @@ def updateMarketPrice(jsondata:dict):
     KEY_MAPPING = {"Name_Localised":"name", "Name":"name", "BuyPrice":"buyprice", "SellPrice":"sellprice", "StockBracket":"stockbracket", "DemandBracket":"demandbracket", "Stock":"stock", "Demand":"demand"}
     
     idnametbl = getCommodityBidict()
-    marketdata = dict()
-    marketdata["lastupdate"] = jsondata["timestamp"]
-    marketdata["market_id"] = jsondata["MarketID"]
     pricedata = [{KEY_MAPPING[k]:v for k,v in item.items() if k in KEY_MAPPING} for item in jsondata["Items"] ]
     for item in pricedata:
         item["market_id"] = jsondata["MarketID"]
         item["commodity_id"] = idnametbl.inverse[item["name"]]
+        item["updated_at"] = jsondata["timestamp"]
 
     conn = getConnection()
     conn.execute("BEGIN")
-    conn.executemany("REPLACE INTO market_price_tbl(market_id, commodity_id, buyprice, sellprice, stockbracket, demandbracket, stock, demand) VALUES(:market_id, :commodity_id, :buyprice, :sellprice, :stockbracket, :demandbracket, :stock, :demand)", pricedata)
-    conn.execute("UPDATE market_tbl SET lastupdate=:lastupdate WHERE id=:market_id", marketdata)
+    conn.executemany("REPLACE INTO market_price_tbl(market_id, commodity_id, buyprice, sellprice, stockbracket, demandbracket, stock, demand, updated_at) VALUES(:market_id, :commodity_id, :buyprice, :sellprice, :stockbracket, :demandbracket, :stock, :demand, :updated_at)", pricedata)
     conn.execute("END")
     conn.commit()
     return
@@ -256,7 +253,7 @@ def eventScan(jsondata:dict):
 
 
 def updateSystem(jsondata:dict):
-    KEY_SYSTEM = {"SystemAddress":"id", "StarSystem":"name", "StarPos":"pos", "StarClass":"startype", "SystemAllegiance":"allegiance", "SystemEconomy_Localised":"economy", "SystemSecondEconomy_Localised":"economysecond", "SystemGovernment_Localised":"government", "SystemSecurity_Localised":"security", "Population":"population", "SystemFaction":"systemfaction_id"}
+    KEY_SYSTEM = {"SystemAddress":"id", "StarSystem":"name", "StarPos":"pos", "StarClass":"startype", "SystemAllegiance":"allegiance", "SystemEconomy_Localised":"economy", "SystemSecondEconomy_Localised":"economysecond", "SystemGovernment_Localised":"government", "SystemSecurity_Localised":"security", "Population":"population", "SystemFaction":"systemfaction_id", "timestamp":"updated_at"}
     LIST_SYSTEM_DETAIL = ["ControllingPower", "Powers", "PowerplayState", "PowerplayStateControlProgress", "PowerplayStateReinforcement", "PowerplayStateUndermining","Factions", "SystemFaction"]
 
     data = {k: v for k, v in jsondata.items() if k in KEY_SYSTEM and v != ""}
@@ -264,6 +261,10 @@ def updateSystem(jsondata:dict):
 
     if len(detail) > 0:
         data["detail"] = json.dumps(detail, ensure_ascii=False)
+
+    if jsondata["event"] == "FSDJump":
+        data["lastarrived_at"] = jsondata["timestamp"]
+        KEY_SYSTEM.update(lastarrived_at="lastarrived_at")
 
     if "StarPos" in data:
         x,y,z = data.pop("StarPos")
@@ -306,7 +307,7 @@ def updateSystem(jsondata:dict):
 
 
 def updateBody(jsondata:dict):
-    KEY_BODY = {"SystemAddress":"system_id", "BodyID":"body_id", "BodyName":"name", "Body":"name", "BodyType":"type","WasDiscovered":"wasdiscovered", "WasMapped":"wasmapped", "timestamp":"lastupdate"}
+    KEY_BODY = {"SystemAddress":"system_id", "BodyID":"body_id", "BodyName":"name", "Body":"name", "BodyType":"type","WasDiscovered":"wasdiscovered", "WasMapped":"wasmapped", "timestamp":"updated_at"}
     LIST_BODY_DETAIL = ['Parents', 'DistanceFromArrivalLS', 'TidalLock', 'TerraformState', 'PlanetClass', 'Atmosphere', 'AtmosphereType', 'Volcanism', 'MassEM', 'Radius', 'SurfaceGravity', 'SurfaceTemperature', 'SurfacePressure', 'Landable', 'Materials', 'Composition', 'SemiMajorAxis', 'Eccentricity', 'OrbitalInclination', 'Periapsis', 'OrbitalPeriod', 'AscendingNode', 'MeanAnomaly', 'RotationPeriod', 'AxialTilt']
 
     data = {k: v for k,v in jsondata.items() if k in KEY_BODY and v != ""}
@@ -342,7 +343,7 @@ def updateBody(jsondata:dict):
 
 
 def updateMarket(jsondata:dict):
-    KEY_MARKET = {"MarketID":"id", "StationName":"name", "Name":"name", "SystemAddress":"system_id", "BodyID":"body_id", "StationType":"type", "StationGovernment_Localised":"goverment", "StationEconomy_Localised":"economy", "DistFromStarLS":"distfromstarls", "pads":"pads", "padm":"padm", "padl":"padl"}
+    KEY_MARKET = {"MarketID":"id", "StationName":"name", "Name":"name", "SystemAddress":"system_id", "BodyID":"body_id", "StationType":"type", "StationGovernment_Localised":"goverment", "StationEconomy_Localised":"economy", "DistFromStarLS":"distfromstarls", "pads":"pads", "padm":"padm", "padl":"padl", "timestamp":"updated_at"}
     LIST_MARKET_DETAIL = ['StationServices']
     
     data = {k:v for k,v in jsondata.items() if k in KEY_MARKET and v != ""}
@@ -392,6 +393,8 @@ def updateFaction(jsondata:dict):
     if "Factions" in jsondata:
         factions = jsondata["Factions"]
         data = [{KEY_FACTION[k]:v for k,v in fac.items() if k in KEY_FACTION} for fac in factions]
+        for d in data:
+            d["updated_at"] = jsondata["timestamp"]
 
         if len(data) > 0:
             tmp1 = "INSERT INTO faction_tbl(name,"
@@ -411,7 +414,7 @@ def updateFaction(jsondata:dict):
 
 
 def updateSystemFaction(jsondata:dict):
-    KEY_SYSTEM_FACTION = {"SystemAddress":"system_id","Name":"name", "FactionState":"state", "Influence":"influence", "Happiness":"happiness"}
+    KEY_SYSTEM_FACTION = {"SystemAddress":"system_id","Name":"name", "FactionState":"state", "Influence":"influence", "Happiness":"happiness", "timestamp":"updated_at"}
     LIST_STATE = ["ActiveStates", "PendingStates"]
 
     if "Factions" in jsondata:
@@ -420,6 +423,7 @@ def updateSystemFaction(jsondata:dict):
             # merge ActiveState/PendingState to state field
             state = {k:v for k, v in fac.items() if k in LIST_STATE}
             fac["FactionState"] = json.dumps(state, ensure_ascii=False)
+            fac["timestamp"] = jsondata["timestamp"]
 
         data = [{k:v for k,v in fac.items() if k in KEY_SYSTEM_FACTION} for fac in factions]
         
@@ -461,7 +465,7 @@ def mergeLocalized(jsondata:dict) -> dict:
     return jsondata
 
 def updateStatistics(jsondata:dict):
-    KEY_STATISTICS = {"timestamp":"lastupdate"}
+    KEY_STATISTICS = {"timestamp":"updated_at"}
     LIST_STATISTICS_DETAIL = ['Bank_Account', 'Combat', 'Crime', 'Smuggling', 'Trading', 'Mining', 'Exploration', 'Passengers', 'Search_And_Rescue', 'Squadron', 'Crafting', 'Crew', 'Multicrew', 'Material_Trader_Stats', 'Exobiology']
 
     data = {k:v for k,v in jsondata.items() if k in KEY_STATISTICS and v != ""}
@@ -470,9 +474,9 @@ def updateStatistics(jsondata:dict):
     if len(detail) > 0:
         data['detail'] = json.dumps(detail, ensure_ascii=False)
 
-        tmp1 = "INSERT INTO statistics_tbl(lastupdate,"
+        tmp1 = "INSERT INTO statistics_tbl(updated_at,"
         tmp2 = " VALUES(:timestamp,"
-        tmp3 = " ON CONFLICT(lastupdate) DO UPDATE SET"
+        tmp3 = " ON CONFLICT(updated_at) DO UPDATE SET"
         for k,v in data.items():
             match k:
                 case "timestamp":
