@@ -67,7 +67,7 @@ sqlite3.register_converter("timestamp", convert_timestamp)
     # "CREATE TABLE IF NOT EXISTS atmospheretype_tbl(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)",
     # "CREATE TABLE IF NOT EXISTS ringclass_tbl(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)",
 QUERY_CREATE_TABLE = [
-    "CREATE TABLE IF NOT EXISTS system_tbl(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, posx REAL, posy REAL, posz REAL, startype TEXT, allegiance TEXT, economy TEXT, economysecond TEXT, government TEXT, security TEXT, population INTEGER, detail BLOB NOT NULL DEFAULT (jsonb('{}'))) WITHOUT ROWID",
+    "CREATE TABLE IF NOT EXISTS system_tbl(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, posx REAL, posy REAL, posz REAL, startype TEXT, systemfaction_id INTEGER, allegiance TEXT, economy TEXT, economysecond TEXT, government TEXT, security TEXT, population INTEGER, detail BLOB NOT NULL DEFAULT (jsonb('{}')), lastarrived_at INTEGER) WITHOUT ROWID",
 
     "CREATE TABLE IF NOT EXISTS body_tbl(system_id INTEGER, body_id INTEGER, name TEXT NOT NULL, type TEXT, wasdiscovered BOOLEAN, wasmapped BOOLEAN, detail BLOB NOT NULL DEFAULT (jsonb('{}')), lastupdate INTEGER, PRIMARY KEY(system_id, body_id)) WITHOUT ROWID",
 
@@ -256,7 +256,7 @@ def eventScan(jsondata:dict):
 
 
 def updateSystem(jsondata:dict):
-    KEY_SYSTEM = {"SystemAddress":"id", "StarSystem":"name", "StarPos":"pos", "StarClass":"startype", "SystemAllegiance":"allegiance", "SystemEconomy_Localised":"economy", "SystemSecondEconomy_Localised":"economysecond", "SystemGovernment_Localised":"government", "SystemSecurity_Localised":"security", "Population":"population"}
+    KEY_SYSTEM = {"SystemAddress":"id", "StarSystem":"name", "StarPos":"pos", "StarClass":"startype", "SystemAllegiance":"allegiance", "SystemEconomy_Localised":"economy", "SystemSecondEconomy_Localised":"economysecond", "SystemGovernment_Localised":"government", "SystemSecurity_Localised":"security", "Population":"population", "SystemFaction":"systemfaction_id"}
     LIST_SYSTEM_DETAIL = ["ControllingPower", "Powers", "PowerplayState", "PowerplayStateControlProgress", "PowerplayStateReinforcement", "PowerplayStateUndermining","Factions", "SystemFaction"]
 
     data = {k: v for k, v in jsondata.items() if k in KEY_SYSTEM and v != ""}
@@ -272,14 +272,23 @@ def updateSystem(jsondata:dict):
         data["posz"] = z
         KEY_SYSTEM.update(posx="posx",posy="posy",posz="posz")
 
+    if "SystemFaction" in data:
+        data["SystemFaction"] = data["SystemFaction"]["Name"]
+
     if "SystemAddress" in data and len(data) >= 2:
         tmp1 = "INSERT INTO system_tbl(id,"
-        tmp2 = " VALUES(:SystemAddress,"
+        tmp2 = " SELECT :SystemAddress,"
+        tmpextbl = ""
         tmp3 = " ON CONFLICT(id) DO UPDATE SET"
         for k,v in data.items():
             match k:
                 case "SystemAddress":
                     pass
+                case "SystemFaction":
+                    tmp1 += f" {KEY_SYSTEM[k]},"
+                    tmp2 += f" faction_tbl.id,"
+                    tmpextbl = f" FROM faction_tbl WHERE faction_tbl.name=:{k} "
+                    tmp3 += f" {KEY_SYSTEM[k]}=excluded.{KEY_SYSTEM[k]},"
                 case "detail":
                     tmp1 += f" detail,"
                     tmp2 += f" jsonb(:detail),"
@@ -288,7 +297,7 @@ def updateSystem(jsondata:dict):
                     tmp1 += f" {KEY_SYSTEM[k]},"
                     tmp2 += f" :{k},"
                     tmp3 += f" {KEY_SYSTEM[k]}=excluded.{KEY_SYSTEM[k]},"
-        query = re.sub(',$',') ',tmp1) + re.sub(',$',') ',tmp2) + re.sub(',$',';',tmp3)
+        query = re.sub(',$',') ',tmp1) + re.sub(',$',' ',tmp2) + tmpextbl + re.sub(',$',';',tmp3)
         logger.debug(query)
         db = getConnection()
         cur = db.cursor()
