@@ -71,7 +71,7 @@ QUERY_CREATE_TABLE = [
 
     "CREATE TABLE IF NOT EXISTS body_tbl(system_id INTEGER, body_id INTEGER, name TEXT NOT NULL, type TEXT, wasdiscovered BOOLEAN, wasmapped BOOLEAN, detail BLOB NOT NULL DEFAULT (jsonb('{}')), updated_at INTEGER, PRIMARY KEY(system_id, body_id)) WITHOUT ROWID",
 
-    "CREATE TABLE IF NOT EXISTS market_tbl(id INTEGER PRIMARY KEY, name TEXT NOT NULL, system_id INTEGER, body_id INTEGER, type TEXT, goverment TEXT, economy TEXT, distfromstarls REAL, pads INTEGER, padm INTEGER, padl INTEGER, faction BLOB, detail BLOB NOT NULL DEFAULT (jsonb('{}')), updated_at INTEGER)",
+    "CREATE TABLE IF NOT EXISTS market_tbl(id INTEGER PRIMARY KEY, name TEXT NOT NULL, system_id INTEGER, body_id INTEGER, type TEXT, goverment TEXT, economy TEXT, distfromstarls REAL, pads INTEGER, padm INTEGER, padl INTEGER, stationfaction_id INTEGER, detail BLOB NOT NULL DEFAULT (jsonb('{}')), updated_at INTEGER)",
 
     "CREATE TABLE IF NOT EXISTS market_price_tbl(market_id INTEGER, commodity_id INTEGER, buyprice INTEGER, sellprice INTEGER, stockbracket INTEGER, demandbracket INTEGER, stock INTEGER, demand INTEGER, updated_at INTEGER, PRIMARY KEY(market_id, commodity_id)) WITHOUT ROWID",
 
@@ -343,34 +343,36 @@ def updateBody(jsondata:dict):
 
 
 def updateMarket(jsondata:dict):
-    KEY_MARKET = {"MarketID":"id", "StationName":"name", "Name":"name", "SystemAddress":"system_id", "BodyID":"body_id", "StationType":"type", "StationGovernment_Localised":"goverment", "StationEconomy_Localised":"economy", "DistFromStarLS":"distfromstarls", "pads":"pads", "padm":"padm", "padl":"padl", "timestamp":"updated_at"}
+    KEY_MARKET = {"MarketID":"id", "StationName":"name", "Name":"name", "SystemAddress":"system_id", "BodyID":"body_id", "StationType":"type", "StationGovernment_Localised":"goverment", "StationEconomy_Localised":"economy", "StationFaction":"stationfaction_id", "DistFromStarLS":"distfromstarls", "pads":"pads", "padm":"padm", "padl":"padl", "timestamp":"updated_at"}
     LIST_MARKET_DETAIL = ['StationServices']
     
     data = {k:v for k,v in jsondata.items() if k in KEY_MARKET and v != ""}
     detail = {k:v for k,v in jsondata.items() if k in LIST_MARKET_DETAIL and v != ""}
-    faction = jsondata["StationFaction"] if "StationFaction" in jsondata else list()
+
+    if "StationFaction" in data:
+        data["StationFaction"] = data["StationFaction"]["Name"]
 
     KEY_PADS = {"Small":"pads", "Medium":"padm", "Large":"padl"}
     if "LandingPads" in jsondata:
         data.update({KEY_PADS[k]:v for k,v in jsondata["LandingPads"].items() if k in KEY_PADS})
 
-    if len(faction) > 0:
-        data['faction'] = json.dumps(faction, ensure_ascii=False)
     if len(detail) > 0:
         data['detail'] = json.dumps(detail, ensure_ascii=False)
 
     if "MarketID" in data:
         tmp1 = "INSERT INTO market_tbl(id,"
-        tmp2 = " VALUES(:MarketID,"
+        tmp2 = " SELECT :MarketID,"
+        tmpextbl = ""
         tmp3 = " ON CONFLICT(id) DO UPDATE SET"
         for k,v in data.items():
             match k:
                 case "MarketID":
                     pass
-                case "faction":
-                    tmp1 += f" faction,"
-                    tmp2 += f" jsonb(:faction),"
-                    tmp3 += f" faction=excluded.faction,"
+                case "StationFaction":
+                    tmp1 += f" {KEY_MARKET[k]},"
+                    tmp2 += f" faction_tbl.id,"
+                    tmpextbl = f" FROM faction_tbl WHERE faction_tbl.name=:{k} "
+                    tmp3 += f" {KEY_MARKET[k]}=excluded.{KEY_MARKET[k]},"
                 case "detail":
                     tmp1 += f" detail,"
                     tmp2 += f" jsonb(:detail),"
@@ -379,7 +381,7 @@ def updateMarket(jsondata:dict):
                     tmp1 += f" {KEY_MARKET[k]},"
                     tmp2 += f" :{k},"
                     tmp3 += f" {KEY_MARKET[k]}=excluded.{KEY_MARKET[k]},"
-        query = re.sub(',$',') ',tmp1) + re.sub(',$',') ',tmp2) + re.sub(',$',';',tmp3)
+        query = re.sub(',$',') ',tmp1) + re.sub(',$',' ',tmp2) + tmpextbl + re.sub(',$',';',tmp3)
         logger.debug(query)
         db = getConnection()
         cur = db.cursor()
